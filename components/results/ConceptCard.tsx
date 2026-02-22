@@ -1,20 +1,47 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { DesignConcept, QuoteLineItem } from '@/types'
+import { DesignConcept, QuoteLineItem, SavedConcept } from '@/types'
+import { saveConcept, unsaveConcept, isConceptSaved, updateSavedConceptQuote } from '@/lib/store'
 import QuoteBuilder from './QuoteBuilder'
 
 interface ConceptCardProps {
   concept: DesignConcept
   index: number
+  onSaveChange?: (savedCount: number) => void
 }
 
-export default function ConceptCard({ concept, index }: ConceptCardProps) {
+export default function ConceptCard({ concept, index, onSaveChange }: ConceptCardProps) {
   const [quoteItems, setQuoteItems] = useState<QuoteLineItem[]>(
     concept.quoteLineItems || []
   )
+  const [saved, setSaved] = useState<SavedConcept | undefined>(undefined)
   const hasQuote = quoteItems.length > 0
+
+  useEffect(() => {
+    setSaved(isConceptSaved(concept.name))
+  }, [concept.name])
+
+  const handleQuoteChange = useCallback((items: QuoteLineItem[]) => {
+    setQuoteItems(items)
+    if (saved) {
+      updateSavedConceptQuote(saved.id, items)
+    }
+  }, [saved])
+
+  const toggleSave = useCallback(() => {
+    if (saved) {
+      unsaveConcept(saved.id)
+      setSaved(undefined)
+    } else {
+      const newSaved = saveConcept(concept, quoteItems)
+      setSaved(newSaved)
+    }
+    // Notify parent of change
+    const { savedConcepts } = JSON.parse(localStorage.getItem('effekt-design-session') || '{}')
+    onSaveChange?.(savedConcepts?.length || 0)
+  }, [saved, concept, quoteItems, onSaveChange])
 
   return (
     <motion.article
@@ -152,7 +179,7 @@ export default function ConceptCard({ concept, index }: ConceptCardProps) {
 
         {/* Interactive Quote Builder */}
         {hasQuote ? (
-          <QuoteBuilder lineItems={quoteItems} onChange={setQuoteItems} />
+          <QuoteBuilder lineItems={quoteItems} onChange={handleQuoteChange} />
         ) : (
           <div className="p-4 sm:p-6 bg-brand-green/5 rounded-xl border border-brand-green/10">
             <h3 className="text-xs tracking-brand-wide text-brand-green uppercase mb-2">
@@ -163,6 +190,35 @@ export default function ConceptCard({ concept, index }: ConceptCardProps) {
             </p>
           </div>
         )}
+
+        {/* Save / Unsave button */}
+        <div className="mt-6 flex justify-center">
+          <button
+            type="button"
+            onClick={toggleSave}
+            className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-medium tracking-wide transition-all duration-200 ${
+              saved
+                ? 'bg-brand-green text-white hover:bg-brand-green-dark'
+                : 'border-2 border-brand-green text-brand-green hover:bg-brand-green hover:text-white'
+            }`}
+          >
+            {saved ? (
+              <>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Saved to My Selection
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+                Save This Concept
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </motion.article>
   )

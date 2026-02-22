@@ -107,10 +107,20 @@ export interface DesignResponse {
   nextSteps: string
 }
 
+export interface SavedConcept {
+  id: string
+  concept: DesignConcept
+  quoteLineItems: QuoteLineItem[]
+  savedAt: string
+  batchId: string
+}
+
 export interface DesignSession {
   sessionData: SessionData
   uploads: UploadedFile[]
   responses: QuestionResponse[]
   plotDimensions?: PlotDimensions
   designResult?: DesignResponse
+  savedConcepts: SavedConcept[]
+  generationHistory: DesignResponse[]
 }

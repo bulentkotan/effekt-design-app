@@ -1,6 +1,6 @@
 'use client'
 
-import { DesignResponse, DesignSession, QuestionResponse, SessionData, UploadedFile } from '@/types'
+import { DesignResponse, DesignSession, QuestionResponse, QuoteLineItem, SavedConcept, SessionData, UploadedFile, DesignConcept } from '@/types'
 
 const STORAGE_KEY = 'effekt-design-session'
 
@@ -19,14 +19,22 @@ function getInitialSession(): DesignSession {
     },
     uploads: [],
     responses: [],
+    savedConcepts: [],
+    generationHistory: [],
   }
+}
+
+function migrateSession(session: DesignSession): DesignSession {
+  if (!session.savedConcepts) session.savedConcepts = []
+  if (!session.generationHistory) session.generationHistory = []
+  return session
 }
 
 export function loadSession(): DesignSession {
   if (typeof window === 'undefined') return getInitialSession()
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) return JSON.parse(stored)
+    if (stored) return migrateSession(JSON.parse(stored))
   } catch {
     // ignore
   }
@@ -84,4 +92,52 @@ export function setDesignResult(result: DesignResponse): void {
   const session = loadSession()
   session.designResult = result
   saveSession(session)
+}
+
+export function saveConcept(concept: DesignConcept, quoteLineItems: QuoteLineItem[], batchId?: string): SavedConcept {
+  const session = loadSession()
+  const saved: SavedConcept = {
+    id: `saved-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    concept,
+    quoteLineItems,
+    savedAt: new Date().toISOString(),
+    batchId: batchId || `batch-${Date.now()}`,
+  }
+  session.savedConcepts.push(saved)
+  saveSession(session)
+  return saved
+}
+
+export function unsaveConcept(conceptId: string): void {
+  const session = loadSession()
+  session.savedConcepts = session.savedConcepts.filter(sc => sc.id !== conceptId)
+  saveSession(session)
+}
+
+export function isConceptSaved(conceptName: string): SavedConcept | undefined {
+  const session = loadSession()
+  return session.savedConcepts.find(sc => sc.concept.name === conceptName)
+}
+
+export function getSavedConcepts(): SavedConcept[] {
+  const session = loadSession()
+  return session.savedConcepts
+}
+
+export function updateSavedConceptQuote(conceptId: string, quoteLineItems: QuoteLineItem[]): void {
+  const session = loadSession()
+  const saved = session.savedConcepts.find(sc => sc.id === conceptId)
+  if (saved) {
+    saved.quoteLineItems = quoteLineItems
+    saveSession(session)
+  }
+}
+
+export function preserveCurrentResults(): void {
+  const session = loadSession()
+  if (session.designResult) {
+    session.generationHistory.push(session.designResult)
+    session.designResult = undefined
+    saveSession(session)
+  }
 }

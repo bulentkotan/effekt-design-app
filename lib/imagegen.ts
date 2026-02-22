@@ -1,7 +1,5 @@
 import OpenAI from 'openai'
 import { DesignConcept } from '@/types'
-import { writeFileSync, mkdirSync, existsSync } from 'fs'
-import { join } from 'path'
 
 function buildImagePrompt(concept: DesignConcept, sessionContext: string): string {
   const plantNames = concept.plantPalette.slice(0, 6).map(p => p.name).join(', ')
@@ -53,17 +51,7 @@ export async function generateConceptImage(
     throw new Error(`No image returned for "${concept.name}"`)
   }
 
-  const imagesDir = join(process.cwd(), 'public', 'generated')
-  if (!existsSync(imagesDir)) {
-    mkdirSync(imagesDir, { recursive: true })
-  }
-
-  const slug = concept.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  const filename = `concept-${slug}-${Date.now()}.png`
-  const filepath = join(imagesDir, filename)
-  writeFileSync(filepath, Buffer.from(imageOutput.result, 'base64'))
-
-  return `/generated/${filename}`
+  return `data:image/png;base64,${imageOutput.result}`
 }
 
 export async function generateAllConceptImages(

@@ -1,22 +1,35 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { loadSession } from '@/lib/store'
+import { loadSession, preserveCurrentResults, getSavedConcepts } from '@/lib/store'
 import { DesignResponse } from '@/types'
 import ConceptCard from '@/components/results/ConceptCard'
 import Button from '@/components/ui/Button'
 import Footer from '@/components/layout/Footer'
 
 export default function ResultsPage() {
+  const router = useRouter()
   const [result, setResult] = useState<DesignResponse | null>(null)
+  const [savedCount, setSavedCount] = useState(0)
 
   useEffect(() => {
     const session = loadSession()
     if (session.designResult) {
       setResult(session.designResult)
     }
+    setSavedCount(getSavedConcepts().length)
   }, [])
+
+  const handleSaveChange = useCallback((count: number) => {
+    setSavedCount(count)
+  }, [])
+
+  const handleGenerateMore = useCallback(() => {
+    preserveCurrentResults()
+    router.push('/design/generating')
+  }, [router])
 
   if (!result) {
     return (
@@ -51,22 +64,59 @@ export default function ResultsPage() {
           <p className="text-text-medium max-w-2xl mx-auto leading-relaxed">
             {result.greeting}
           </p>
+
+          {/* My Selection link */}
+          {savedCount > 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="mt-6"
+            >
+              <a
+                href="/design/selection"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-brand-green text-white text-sm font-medium tracking-wide hover:bg-brand-green-light transition-colors"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+                My Selection ({savedCount})
+              </a>
+            </motion.div>
+          )}
         </motion.div>
 
         {/* Concept Cards */}
         <div className="space-y-8">
           {result.concepts.map((concept, index) => (
-            <ConceptCard key={index} concept={concept} index={index} />
+            <ConceptCard
+              key={index}
+              concept={concept}
+              index={index}
+              onSaveChange={handleSaveChange}
+            />
           ))}
         </div>
 
-        {/* Next Steps */}
+        {/* Generate More + Next Steps */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           className="mt-16 text-center"
         >
+          {/* Generate More */}
+          <div className="bg-bg-white rounded-2xl border border-border p-8 sm:p-10 mb-8">
+            <h2 className="font-serif text-xl sm:text-2xl text-text-dark mb-3">
+              Want more ideas?
+            </h2>
+            <p className="text-sm text-text-medium mb-6 max-w-md mx-auto">
+              Generate a fresh set of concepts while keeping your current ones. Your saved selections are preserved.
+            </p>
+            <Button variant="outline" size="lg" onClick={handleGenerateMore}>
+              Generate More Concepts
+            </Button>
+          </div>
+
           <div className="bg-bg-white rounded-2xl border border-border p-8 sm:p-12">
             <h2 className="font-serif text-2xl sm:text-3xl text-text-dark mb-4">
               Love a concept?{' '}
@@ -77,13 +127,21 @@ export default function ResultsPage() {
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <a
-                href="mailto:paula@effekt-design.com?subject=Landscape%20Design%20Consultation"
-              >
-                <Button size="lg">
-                  Book a Consultation
-                </Button>
-              </a>
+              {savedCount > 0 ? (
+                <a href="/design/selection">
+                  <Button size="lg">
+                    Review My Selection ({savedCount})
+                  </Button>
+                </a>
+              ) : (
+                <a
+                  href="mailto:paula@effekt-design.com?subject=Landscape%20Design%20Consultation"
+                >
+                  <Button size="lg">
+                    Book a Consultation
+                  </Button>
+                </a>
+              )}
               <a href="https://wa.me/971551392887" target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="lg">
                   WhatsApp Us

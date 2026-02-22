@@ -17,6 +17,26 @@ const stages = [
   'Almost there — polishing your concepts...',
 ]
 
+async function compressImageDataUrl(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      // Resize to max 800px wide to keep localStorage manageable
+      const maxWidth = 800
+      const scale = Math.min(1, maxWidth / img.width)
+      canvas.width = img.width * scale
+      canvas.height = img.height * scale
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      // Convert to JPEG at 0.7 quality (~50-100KB instead of 2-5MB)
+      resolve(canvas.toDataURL('image/jpeg', 0.7))
+    }
+    img.onerror = () => resolve(dataUrl) // fallback to original
+    img.src = dataUrl
+  })
+}
+
 function BotanicalAnimation() {
   return (
     <div className="relative w-48 h-48 mx-auto mb-10">
@@ -131,9 +151,20 @@ export default function GeneratingPage() {
         })
 
         const imageUrls = await Promise.all(imagePromises)
+
+        // Compress images before storing in localStorage
+        const compressedUrls = await Promise.all(
+          imageUrls.map(async (url) => {
+            if (url && url.startsWith('data:')) {
+              return compressImageDataUrl(url)
+            }
+            return url
+          })
+        )
+
         data.concepts = data.concepts.map((concept, i) => ({
           ...concept,
-          imageUrl: imageUrls[i] || null,
+          imageUrl: compressedUrls[i] || null,
         }))
 
         setDesignResult(data)
