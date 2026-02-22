@@ -129,6 +129,7 @@ export async function generateDesigns(
 
   const userPrompt = buildUserPrompt(session, responses, uploads)
 
+  // Use streaming to avoid Vercel function timeout
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -138,7 +139,8 @@ export async function generateDesigns(
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 12000,
+      max_tokens: 8000,
+      stream: true,
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -155,29 +157,54 @@ export async function generateDesigns(
     throw new Error(`Claude API error: ${response.status} — ${error}`)
   }
 
-  const data = await response.json()
-  console.log('[claude] Response stop_reason:', data.stop_reason, 'output tokens:', data.usage?.output_tokens)
+  // Read the SSE stream and collect all text
+  const reader = response.body!.getReader()
+  const decoder = new TextDecoder()
+  let fullText = ''
+  let stopReason = ''
 
-  const content = data.content?.[0]?.text
-  if (!content) throw new Error('Empty response from Claude')
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const chunk = decoder.decode(value, { stream: true })
+    const lines = chunk.split('\n')
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6)
+      if (data === '[DONE]') continue
+      try {
+        const event = JSON.parse(data)
+        if (event.type === 'content_block_delta' && event.delta?.text) {
+          fullText += event.delta.text
+        }
+        if (event.type === 'message_delta' && event.delta?.stop_reason) {
+          stopReason = event.delta.stop_reason
+        }
+      } catch {
+        // skip non-JSON lines
+      }
+    }
+  }
+
+  console.log('[claude] Stream complete. stop_reason:', stopReason, 'chars:', fullText.length)
+
+  if (!fullText) throw new Error('Empty response from Claude')
 
   // Strip markdown code fences if Claude wraps the JSON
-  let cleaned = content.trim()
+  let cleaned = fullText.trim()
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
   }
 
   // If the response was truncated (max_tokens hit), try to fix the JSON
-  if (data.stop_reason === 'max_tokens') {
+  if (stopReason === 'max_tokens') {
     console.warn('[claude] Response was truncated — attempting JSON repair')
-    // Try to close open structures
     let depth = 0
     for (const ch of cleaned) {
       if (ch === '{' || ch === '[') depth++
       if (ch === '}' || ch === ']') depth--
     }
     while (depth > 0) {
-      // Try to guess the right closing bracket
       const lastOpen = cleaned.lastIndexOf('{') > cleaned.lastIndexOf('[') ? '}' : ']'
       cleaned += lastOpen
       depth--

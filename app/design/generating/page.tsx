@@ -83,7 +83,7 @@ export default function GeneratingPage() {
       const session = loadSession()
 
       try {
-        // Step 1: Generate text concepts via Claude
+        // Step 1: Generate text concepts via Claude (SSE stream)
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -106,7 +106,37 @@ export default function GeneratingPage() {
           throw new Error(`Server returned ${res.status}`)
         }
 
-        const data: DesignResponse = await res.json()
+        // Read SSE stream to get the result
+        const reader = res.body!.getReader()
+        const decoder = new TextDecoder()
+        let sseBuffer = ''
+        let data: DesignResponse | null = null
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          sseBuffer += decoder.decode(value, { stream: true })
+          const lines = sseBuffer.split('\n')
+          sseBuffer = lines.pop() || ''
+          for (const line of lines) {
+            if (line.startsWith('event: error')) {
+              const nextDataLine = lines.find(l => l.startsWith('data: '))
+              if (nextDataLine) {
+                const errData = JSON.parse(nextDataLine.slice(6))
+                throw new Error(errData.error)
+              }
+            }
+            if (line.startsWith('data: ')) {
+              try {
+                data = JSON.parse(line.slice(6))
+              } catch {
+                // not the final JSON yet
+              }
+            }
+          }
+        }
+
+        if (!data) throw new Error('No design data received')
 
         // Step 2: Generate images for each concept in parallel
         const sessionContext = [
