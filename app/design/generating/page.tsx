@@ -83,6 +83,7 @@ export default function GeneratingPage() {
       const session = loadSession()
 
       try {
+        // Step 1: Generate text concepts via Claude
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -106,6 +107,36 @@ export default function GeneratingPage() {
         }
 
         const data: DesignResponse = await res.json()
+
+        // Step 2: Generate images for each concept in parallel
+        const sessionContext = [
+          session.sessionData.propertyType && `Property type: ${session.sessionData.propertyType}.`,
+          session.sessionData.areaSqm && `Garden area: ${session.sessionData.areaSqm} sqm.`,
+        ].filter(Boolean).join(' ')
+
+        const imagePromises = data.concepts.map(async (concept) => {
+          try {
+            const imgRes = await fetch('/api/generate-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ concept, sessionContext }),
+            })
+            if (imgRes.ok) {
+              const { imageUrl } = await imgRes.json()
+              return imageUrl
+            }
+            return null
+          } catch {
+            return null
+          }
+        })
+
+        const imageUrls = await Promise.all(imagePromises)
+        data.concepts = data.concepts.map((concept, i) => ({
+          ...concept,
+          imageUrl: imageUrls[i] || null,
+        }))
+
         setDesignResult(data)
 
         await new Promise(resolve => setTimeout(resolve, 1500))
