@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateDesigns } from '@/lib/claude'
+import { generateAllConceptImages } from '@/lib/imagegen'
 import { SessionData, QuestionResponse, UploadedFile } from '@/types'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,43 +25,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Use a TransformStream to keep Vercel's connection alive
-    // by sending periodic heartbeat comments while Claude generates
-    const { readable, writable } = new TransformStream()
-    const writer = writable.getWriter()
-    const encoder = new TextEncoder()
+    // Step 1: Generate text concepts via Claude
+    console.log('[generate] Step 1: Calling Claude for design concepts...')
+    let result
+    try {
+      result = await generateDesigns(sessionData, responses, uploads)
+      console.log('[generate] Step 1 complete. Concepts:', result.concepts?.length)
+    } catch (claudeErr) {
+      console.error('[generate] Claude generation failed:', claudeErr)
+      throw claudeErr
+    }
 
-    const heartbeat = setInterval(() => {
-      writer.write(encoder.encode(': heartbeat\n\n')).catch(() => {})
-    }, 5000)
+    // Step 2: Generate images for each concept via DALL-E 3
+    console.log('[generate] Step 2: Generating images...')
+    try {
+      const sessionContext = [
+        sessionData.propertyType && `Property type: ${sessionData.propertyType}.`,
+        sessionData.areaSqm && `Garden area: ${sessionData.areaSqm} sqm.`,
+      ].filter(Boolean).join(' ')
 
-    ;(async () => {
-      try {
-        console.log('[generate] Calling Claude for design concepts...')
-        const result = await generateDesigns(sessionData, responses, uploads)
-        console.log('[generate] Complete. Concepts:', result.concepts?.length)
+      const imageUrls = await generateAllConceptImages(result.concepts, sessionContext)
 
-        clearInterval(heartbeat)
-        await writer.write(encoder.encode(`data: ${JSON.stringify(result)}\n\n`))
-      } catch (error) {
-        clearInterval(heartbeat)
-        const errMsg = error instanceof Error ? error.message : String(error)
-        console.error('Design generation error:', errMsg)
-        await writer.write(
-          encoder.encode(`event: error\ndata: ${JSON.stringify({ error: errMsg })}\n\n`)
-        )
-      } finally {
-        await writer.close()
-      }
-    })()
+      result.concepts = result.concepts.map((concept, i) => ({
+        ...concept,
+        imageUrl: imageUrls[i] || null,
+      }))
+      console.log('[generate] Step 2 complete. Images generated.')
+    } catch (imgErr) {
+      console.error('[generate] Image generation failed (continuing without images):', imgErr)
+    }
 
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    })
+    return NextResponse.json(result)
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error)
     console.error('Design generation error:', errMsg)

@@ -35,10 +35,10 @@ function buildUserPrompt(
     })
     .join('\n')
 
-  // Ultra-compact format: "id|unit|rate|req/opt"
+  // Compact format: "id|name|category|unit|rate|optional"
   const pricingCatalogCompact = allPricingItems.map(p =>
-    `${p.id}|${p.unit}|${p.unitRate}|${p.isOptional ? 'opt' : 'req'}`
-  ).join(', ')
+    `${p.id}|${p.name}|${p.category}|${p.unit}|${p.unitRate}|${p.isOptional ? 'opt' : 'req'}`
+  ).join('\n')
 
   return `Here is the client's design brief:
 
@@ -69,7 +69,7 @@ ${pricingCatalogCompact}
 
 For each concept, include a "quoteLineItems" array. Each entry needs: pricingId (exact id from above), quantity (realistic for the garden area). Always include "req" items. Add "opt" items matching the concept. Use garden sqm to set flooring quantities.
 
-Generate 3 distinct landscape design concepts with 5-6 plants each (Dubai climate only). Keep narratives concise (1 paragraph each).
+Generate 3 distinct landscape design concepts with 8-10 plants each (Dubai climate only).
 
 IMPORTANT: Return ONLY valid JSON (no markdown, no code fences):
 {
@@ -78,7 +78,7 @@ IMPORTANT: Return ONLY valid JSON (no markdown, no code fences):
     {
       "name": "string",
       "tagline": "string",
-      "narrative": "1 paragraph",
+      "narrative": "2-3 paragraphs",
       "plantPalette": [{"name":"string","botanical":"string","reason":"string","care":"string","placement":"string"}],
       "materials": [{"category":"string","recommendation":"string","notes":"string"}],
       "keyFeatures": [{"feature":"string","description":"string"}],
@@ -129,7 +129,6 @@ export async function generateDesigns(
 
   const userPrompt = buildUserPrompt(session, responses, uploads)
 
-  // Use streaming to avoid Vercel function timeout
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -138,9 +137,8 @@ export async function generateDesigns(
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 7000,
-      stream: true,
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 12000,
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -157,54 +155,29 @@ export async function generateDesigns(
     throw new Error(`Claude API error: ${response.status} — ${error}`)
   }
 
-  // Read the SSE stream and collect all text
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let fullText = ''
-  let stopReason = ''
+  const data = await response.json()
+  console.log('[claude] Response stop_reason:', data.stop_reason, 'output tokens:', data.usage?.output_tokens)
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const chunk = decoder.decode(value, { stream: true })
-    const lines = chunk.split('\n')
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6)
-      if (data === '[DONE]') continue
-      try {
-        const event = JSON.parse(data)
-        if (event.type === 'content_block_delta' && event.delta?.text) {
-          fullText += event.delta.text
-        }
-        if (event.type === 'message_delta' && event.delta?.stop_reason) {
-          stopReason = event.delta.stop_reason
-        }
-      } catch {
-        // skip non-JSON lines
-      }
-    }
-  }
-
-  console.log('[claude] Stream complete. stop_reason:', stopReason, 'chars:', fullText.length)
-
-  if (!fullText) throw new Error('Empty response from Claude')
+  const content = data.content?.[0]?.text
+  if (!content) throw new Error('Empty response from Claude')
 
   // Strip markdown code fences if Claude wraps the JSON
-  let cleaned = fullText.trim()
+  let cleaned = content.trim()
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
   }
 
   // If the response was truncated (max_tokens hit), try to fix the JSON
-  if (stopReason === 'max_tokens') {
+  if (data.stop_reason === 'max_tokens') {
     console.warn('[claude] Response was truncated — attempting JSON repair')
+    // Try to close open structures
     let depth = 0
     for (const ch of cleaned) {
       if (ch === '{' || ch === '[') depth++
       if (ch === '}' || ch === ']') depth--
     }
     while (depth > 0) {
+      // Try to guess the right closing bracket
       const lastOpen = cleaned.lastIndexOf('{') > cleaned.lastIndexOf('[') ? '}' : ']'
       cleaned += lastOpen
       depth--
