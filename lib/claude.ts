@@ -35,10 +35,10 @@ function buildUserPrompt(
     })
     .join('\n')
 
-  // Compact format: "id|name|category|unit|rate|optional"
+  // Ultra-compact format: "id|unit|rate|req/opt"
   const pricingCatalogCompact = allPricingItems.map(p =>
-    `${p.id}|${p.name}|${p.category}|${p.unit}|${p.unitRate}|${p.isOptional ? 'opt' : 'req'}`
-  ).join('\n')
+    `${p.id}|${p.unit}|${p.unitRate}|${p.isOptional ? 'opt' : 'req'}`
+  ).join(', ')
 
   return `Here is the client's design brief:
 
@@ -69,7 +69,7 @@ ${pricingCatalogCompact}
 
 For each concept, include a "quoteLineItems" array. Each entry needs: pricingId (exact id from above), quantity (realistic for the garden area). Always include "req" items. Add "opt" items matching the concept. Use garden sqm to set flooring quantities.
 
-Generate 3 distinct landscape design concepts with 8-10 plants each (Dubai climate only).
+Generate 3 distinct landscape design concepts with 5-6 plants each (Dubai climate only). Keep narratives concise (1 paragraph each).
 
 IMPORTANT: Return ONLY valid JSON (no markdown, no code fences):
 {
@@ -78,7 +78,7 @@ IMPORTANT: Return ONLY valid JSON (no markdown, no code fences):
     {
       "name": "string",
       "tagline": "string",
-      "narrative": "2-3 paragraphs",
+      "narrative": "1 paragraph",
       "plantPalette": [{"name":"string","botanical":"string","reason":"string","care":"string","placement":"string"}],
       "materials": [{"category":"string","recommendation":"string","notes":"string"}],
       "keyFeatures": [{"feature":"string","description":"string"}],
@@ -138,8 +138,8 @@ export async function generateDesigns(
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 7000,
       stream: true,
       system: SYSTEM_PROMPT,
       messages: [
