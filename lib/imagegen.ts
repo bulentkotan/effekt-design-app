@@ -40,9 +40,9 @@ export async function generateConceptImage(
         type: 'image_generation',
         quality: 'high',
         size: '1536x1024',
-      } as Parameters<typeof openai.responses.create>[0]['tools'][0],
+      } as any,
     ],
-    tool_choice: { type: 'image_generation' } as Parameters<typeof openai.responses.create>[0]['tool_choice'],
+    tool_choice: { type: 'image_generation' } as any,
   })
 
   const imageOutput = response.output.find(
